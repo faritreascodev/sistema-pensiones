@@ -1,0 +1,260 @@
+// Sistema de Control y Cobro de Pensiones y Aranceles
+// UEF Monseñor Ángel Barbisotti — régimen Costa (mayo a febrero).
+//
+// Un recibo es una fila, como en BD Registros Recibo: un estudiante,
+// un concepto, un mes y un monto libre. El número puede repetirse
+// cuando varias filas pertenecen al mismo comprobante físico.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  COLLECTOR
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  WITHDRAWN
+}
+
+enum FeeCategory {
+  PENSION
+  UNIFORM
+  BOOKS
+  SERVICES
+  ARREARS
+}
+
+enum CalendarMonth {
+  JAN
+  FEB
+  MAR
+  APR
+  MAY
+  JUN
+  JUL
+  AUG
+  SEP
+  OCT
+  NOV
+  DEC
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  DEPOSIT
+  CHECK
+}
+
+enum ReceiptStatus {
+  EMITTED
+  VOIDED
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Specialty {
+  EGB
+  MECANICA
+  INFORMATICA
+  ELECTRICIDAD
+  EBANISTERIA
+}
+
+model Institution {
+  id        String   @id @default("default")
+  name      String
+  city      String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("institutions")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole
+  jobTitle     String
+  active       Boolean   @default(true)
+  receipts     Receipt[] @relation("ReceiptCashier")
+  voids        Receipt[] @relation("ReceiptVoidedBy")
+  vouchers     PaymentVoucher[] @relation("VoucherReviewer")
+  audits       AuditLog[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([role, active])
+  @@map("users")
+}
+
+/// Año lectivo de régimen Costa: inicia en mayo y cierra en febrero.
+model AcademicYear {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  startYear Int
+  endYear   Int
+  startsOn  DateTime  @db.Date
+  endsOn    DateTime  @db.Date
+  active    Boolean   @default(false)
+  students  Student[]
+  receipts  Receipt[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("academic_years")
+}
+
+model Grade {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  sortOrder Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("grades")
+}
+
+model Student {
+  id             String        @id @default(uuid()) @db.Uuid
+  idCard         String?       @unique @db.VarChar(10)
+  fullName       String
+  grade          String
+  section        String?
+  specialty      Specialty?
+  status         StudentStatus @default(ACTIVE)
+  academicYearId String?       @db.Uuid
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  receipts       Receipt[]
+  vouchers       PaymentVoucher[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([fullName])
+  @@index([grade, section])
+  @@index([status])
+  @@index([academicYearId])
+  @@map("students")
+}
+
+model FeeCatalog {
+  id         String      @id @default(uuid()) @db.Uuid
+  name       String      @unique
+  category   FeeCategory
+  baseAmount Decimal?    @db.Decimal(12, 2)
+  active     Boolean     @default(true)
+  sortOrder  Int         @default(100)
+  receipts   Receipt[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([category, active])
+  @@map("fee_catalog")
+}
+
+model ReceiptSequence {
+  year       Int      @id
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@map("receipt_sequences")
+}
+
+model Receipt {
+  id              String         @id @default(uuid()) @db.Uuid
+  receiptNumber   String         @db.VarChar(40)
+  issueDate       DateTime       @db.Date
+  studentId       String         @db.Uuid
+  academicYearId  String         @db.Uuid
+  feeCatalogId    String         @db.Uuid
+  coveredMonth    CalendarMonth
+  /// Meses que cubre este pago. En pensión puede ser más de uno.
+  coveredMonths   CalendarMonth[] @default([])
+  amount          Decimal        @db.Decimal(12, 2)
+  paymentMethod   PaymentMethod
+  referenceNumber String?        @db.VarChar(40)
+  bankName        String?        @db.VarChar(80)
+  bankDate        DateTime?      @db.Date
+  cashierId       String         @db.Uuid
+  cashierName     String
+  cashierRole     String
+  notes           String?
+  status          ReceiptStatus  @default(EMITTED)
+  voidReason      String?
+  voidedAt        DateTime?
+  voidedById      String?        @db.Uuid
+  student         Student        @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear    AcademicYear   @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  fee             FeeCatalog     @relation(fields: [feeCatalogId], references: [id], onDelete: Restrict)
+  cashier         User           @relation("ReceiptCashier", fields: [cashierId], references: [id], onDelete: Restrict)
+  voidedBy        User?          @relation("ReceiptVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  voucher         PaymentVoucher?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([issueDate])
+  @@index([receiptNumber])
+  @@index([cashierId, issueDate])
+  @@index([studentId, issueDate])
+  @@index([academicYearId, coveredMonth])
+  @@index([status, issueDate])
+  @@index([paymentMethod, issueDate])
+  @@map("receipts")
+}
+
+model PaymentVoucher {
+  id                 String             @id @default(uuid()) @db.Uuid
+  receiptId          String?            @unique @db.Uuid
+  studentId          String             @db.Uuid
+  storedName         String
+  originalName       String
+  mimeType           String
+  bankName           String
+  referenceNumber    String             @db.VarChar(40)
+  amount             Decimal            @db.Decimal(12, 2)
+  bankDate           DateTime?          @db.Date
+  uploadDate         DateTime           @default(now())
+  verificationStatus VerificationStatus @default(PENDING)
+  reviewNote         String?
+  reviewedAt         DateTime?
+  reviewedById       String?            @db.Uuid
+  receipt            Receipt?           @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  student            Student            @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  reviewedBy         User?              @relation("VoucherReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([verificationStatus, uploadDate])
+  @@index([studentId])
+  @@map("payment_vouchers")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @db.Uuid
+  action    String
+  entity    String
+  entityId  String?
+  detail    String
+  createdAt DateTime @default(now())
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

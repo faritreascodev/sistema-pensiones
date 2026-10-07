@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-paper: #ecf0f5;
+  --color-ink: #1f2d3d;
+  --color-muted: #5f6b76;
+  --color-line: #d2d6de;
+  --color-card: #ffffff;
+  --color-pine: #0077c8;
+  --color-pine-2: #005fa3;
+  --color-gold: #0b4f86;
+  --color-moss: #e7f3fb;
+  --color-paid: #008d4c;
+  --color-danger: #dd4b39;
+  --color-danger-soft: #fdeceb;
+  --color-warn: #b58105;
+  --color-warn-soft: #fff6dd;
+  --color-sidebar: #0b3f73;
+  --font-sans: var(--font-source), "Segoe UI", sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, serif;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+@media print {
+  @page {
+    size: 140mm 200mm;
+    margin: 8mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  [data-receipt-sheet],
+  [data-receipt-sheet] *,
+  .print-only,
+  .print-only * {
+    visibility: visible;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  [data-receipt-sheet] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    border: none;
+    box-shadow: none;
+  }
+}
